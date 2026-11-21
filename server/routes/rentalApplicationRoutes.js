@@ -1,5 +1,6 @@
 // server/routes/rentalApplicationRoutes.js
 const express = require('express');
+const { assignAccountNumber } = require('../services/accountNumber');
 const router = express.Router();
 const RentalApplication = require('../models/rentalApplicationModel');
 const Property = require('../models/propertyModel');
@@ -113,9 +114,11 @@ router.put('/:id/status', protect, restrictTo('landlord'), async (req, res) => {
     if (landlordMessage) application.landlordMessage = landlordMessage;
     await application.save();
 
-    // If approved, mark the property as no longer available
+    // If approved, mark the property as no longer available and give the
+    // tenancy its M-Pesa Paybill account number (e.g. "KIL-A2")
     if (status === 'approved') {
-      await Property.findByIdAndUpdate(application.property, { isAvailable: false });
+      const property = await Property.findByIdAndUpdate(application.property, { isAvailable: false }, { new: true });
+      await assignAccountNumber(application, property, RentalApplication);
     }
 
     res.json({ message: `Application ${status}`, application });

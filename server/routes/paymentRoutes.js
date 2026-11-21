@@ -60,6 +60,7 @@ router.put('/:id/mark-paid', protect, restrictTo('landlord'), async (req, res) =
 
     payment.status = 'paid';
     payment.paidAt = new Date();
+    payment.amountPaid = payment.amount;
     await payment.save();
 
     const populated = await payment.populate([

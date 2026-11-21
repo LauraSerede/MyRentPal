@@ -10,6 +10,11 @@ const paymentSchema = new mongoose.Schema(
     status:   { type: String, enum: ['pending', 'paid'], default: 'pending' },
     paidAt:   { type: Date },
     notes:    { type: String },
+    // How much of `amount` has been paid so far (supports part-payments).
+    // Records marked paid before this field existed count as fully paid.
+    amountPaid: { type: Number, default: 0 },
+    // M-Pesa transaction IDs that paid towards this month
+    mpesaRefs:  [{ type: String }],
   },
   { timestamps: true }
 );

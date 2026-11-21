@@ -60,20 +60,55 @@ async function stkPush({ phone, amount, reference, description }) {
   return data;
 }
 
-// ── 4. Register C2B URLs (call once to set up paybill callbacks) ─────────────
+// ── 4. Paybill callback URLs ─────────────────────────────────────────────────
+// Built from MPESA_PUBLIC_URL (your server's public address, e.g. an ngrok URL)
+// plus MPESA_CALLBACK_SECRET, so only Safaricom (who knows the URL) can post payments.
+function c2bCallbackUrls() {
+  const base   = String(process.env.MPESA_PUBLIC_URL || '').replace(/\/$/, '');
+  const secret = process.env.MPESA_CALLBACK_SECRET;
+  if (!base || !secret) {
+    throw new Error('Set MPESA_PUBLIC_URL and MPESA_CALLBACK_SECRET before registering Paybill URLs');
+  }
+  return {
+    confirmation: `${base}/api/mpesa/c2b/confirm/${secret}`,
+    validation:   `${base}/api/mpesa/c2b/validate/${secret}`,
+  };
+}
+
+// ── 5. Register C2B URLs (call once to set up paybill callbacks) ─────────────
 async function registerC2BUrls() {
   const token = await getAccessToken();
+  const urls  = c2bCallbackUrls();
   const { data } = await axios.post(
     `${BASE_URL}/mpesa/c2b/v1/registerurl`,
     {
       ShortCode:       process.env.MPESA_SHORTCODE,
-      ResponseType:    'Completed',
-      ConfirmationURL: process.env.MPESA_CONFIRM_URL,
-      ValidationURL:   process.env.MPESA_VALIDATE_URL,
+      ResponseType:    'Completed', // if our validation URL is unreachable, accept the payment anyway
+      ConfirmationURL: urls.confirmation,
+      ValidationURL:   urls.validation,
     },
     { headers: { Authorization: `Bearer ${token}` } }
   );
   return data;
 }
 
-module.exports = { stkPush, registerC2BUrls, getAccessToken };
+// ── 6. Sandbox only: ask Safaricom to simulate a Paybill payment ─────────────
+// Safaricom then calls our confirmation URL exactly as it would for a real payment.
+async function simulateC2B({ amount, billRef }) {
+  if (process.env.MPESA_ENV === 'production') throw new Error('simulateC2B is sandbox-only');
+  const token = await getAccessToken();
+  const { data } = await axios.post(
+    `${BASE_URL}/mpesa/c2b/v1/simulate`,
+    {
+      ShortCode:     process.env.MPESA_SHORTCODE,
+      CommandID:     'CustomerPayBillOnline',
+      Amount:        Math.round(amount),
+      Msisdn:        '254708374149', // Safaricom's sandbox test number
+      BillRefNumber: billRef,
+    },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
+}
+
+module.exports = { stkPush, registerC2BUrls, simulateC2B, c2bCallbackUrls, getAccessToken };

@@ -42,12 +42,28 @@ const rentalApplicationSchema = new mongoose.Schema({
     default: 'pending',
   },
 
+  // M-Pesa Paybill account number for this tenancy, e.g. "KIL-A2".
+  // Assigned when the application is approved; tenants type it as the Account Number.
+  accountNumber: {
+    type: String,
+    trim: true,
+  },
+
+  // accountNumber with spaces and dashes removed, uppercased ("KILA2").
+  // Paybill payments are matched on this so "kil a2" and "KIL-A2" both work.
+  accountKey: {
+    type: String,
+  },
+
 }, {
   timestamps: true,
 });
 
 // A tenant can only apply once per property
 rentalApplicationSchema.index({ tenant: 1, property: 1 }, { unique: true });
+
+// Account numbers must be unique across all tenancies (only set on approved ones)
+rentalApplicationSchema.index({ accountKey: 1 }, { unique: true, sparse: true });
 
 const RentalApplication = mongoose.model('RentalApplication', rentalApplicationSchema);
 

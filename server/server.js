@@ -14,10 +14,16 @@ const uploadRoutes   = require('./routes/uploadRoutes');
 const mpesaRoutes         = require('./routes/mpesaRoutes');
 const maintenanceRoutes   = require('./routes/maintenanceRoutes');
 const { startReceiptCron } = require('./services/receiptCron');
+const { backfillAccountNumbers } = require('./services/accountNumber');
+const RentalApplication = require('./models/rentalApplicationModel');
 
 // 2. Environment Config and Database Connection
 dotenv.config();
-connectDB();
+connectDB().then(() =>
+  backfillAccountNumbers(RentalApplication).catch((err) =>
+    console.error('[Accounts] Backfill failed:', err.message)
+  )
+);
 
 // 3. Initialize Express App
 const app = express(); // <-- CREATE THE APP FIRST!

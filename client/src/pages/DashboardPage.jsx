@@ -1,7 +1,9 @@
 ﻿import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import axios from 'axios'
+import { assetUrl } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
+import MpesaSection from '../components/MpesaSection'
 import { Button } from '../components/ui/Button'
 import { Input, Textarea, Select, Label } from '../components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
@@ -33,6 +35,13 @@ function EmptyState({ icon, message, sub }) {
     </div>
   )
 }
+
+// Amount actually paid on a rent record. Records marked paid by hand count in full.
+const paidOf = (p) => (p.status === 'paid' ? p.amount : (p.amountPaid || 0))
+const paymentLabel = (p) => (p.status === 'paid' ? 'paid' : (p.amountPaid > 0 ? 'part paid' : 'pending'))
+const amountText = (p) => (p.status !== 'paid' && p.amountPaid > 0
+  ? `KES ${p.amountPaid.toLocaleString()} of ${p.amount.toLocaleString()}`
+  : `KES ${p.amount.toLocaleString()}`)
 
 const fadeIn = {
   hidden: { opacity: 0, y: 16 },
@@ -70,6 +79,7 @@ const NAV_ITEMS = [
   { key: 'properties',    label: 'Properties',    Icon: Building2 },
   { key: 'applications',  label: 'Applications',  Icon: ClipboardList },
   { key: 'revenue',       label: 'Revenue',       Icon: Banknote },
+  { key: 'mpesa',         label: 'M-Pesa',        Icon: Smartphone },
   { key: 'maintenance',   label: 'Repairs',       Icon: Wrench },
 ]
 
@@ -108,7 +118,7 @@ function LandlordDashboard() {
     <div className="flex flex-col md:flex-row gap-4 md:gap-6 min-h-[70vh]">
 
       {/* ── Mobile tab bar (xs/sm) ── */}
-      <div className="md:hidden bg-card border rounded-xl p-1.5 grid grid-cols-5 gap-1">
+      <div className="md:hidden bg-card border rounded-xl p-1.5 grid grid-cols-6 gap-1">
         {NAV_ITEMS.map(({ key, label, Icon }) => (
           <button
             key={key}
@@ -168,6 +178,7 @@ function LandlordDashboard() {
             {activeSection === 'properties'   && <PropertiesSection  listings={listings} setListings={setListings} applications={applications} payments={payments} setPayments={setPayments} />}
             {activeSection === 'applications' && <ApplicationsSection applications={applications} setApplications={setApplications} />}
             {activeSection === 'revenue'      && <RevenueSection     listings={listings} payments={payments} setPayments={setPayments} />}
+            {activeSection === 'mpesa'        && <MpesaSection       applications={applications} onPaymentsChanged={() => axios.get('/api/payments').then(r => setPayments(r.data)).catch(() => {})} />}
             {activeSection === 'maintenance'  && <MaintenanceSection maintenanceRequests={maintenanceRequests} setMaintenanceRequests={setMaintenanceRequests} />}
           </motion.div>
         </AnimatePresence>
@@ -186,7 +197,7 @@ function OverviewSection({ listings, applications, payments, setActiveSection })
 
   const now       = new Date()
   const thisMonth = payments.filter(p => new Date(p.month).getMonth() === now.getMonth() && new Date(p.month).getFullYear() === now.getFullYear())
-  const collected = thisMonth.filter(p => p.status === 'paid').reduce((s, p) => s + p.amount, 0)
+  const collected = thisMonth.reduce((s, p) => s + paidOf(p), 0)
 
   const stats = [
     { label: 'Total Properties',     value: listings.length, icon: Home,          color: 'text-[#7c4a1e]',  bg: 'bg-[#7c4a1e]/10' },
@@ -314,7 +325,7 @@ function PropertiesSection({ listings, setListings, applications, payments, setP
         const fd = new FormData()
         fd.append('image', formImageFile)
         const { data: up } = await axios.post('/api/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-        images = [`http://localhost:5000${up.url}`]
+        images = [assetUrl(up.url)]
         setFormImgUploading(false)
       }
       const { data } = await axios.post('/api/properties', { ...newProperty, images })
@@ -530,7 +541,7 @@ function PropertyDrawer({ property, applications, payments, setPayments, setList
   const propId    = property._id?.toString()
   const propApps  = applications.filter(a => (a.property?._id?.toString() ?? a.property?.toString()) === propId && a.status === 'approved')
   const propPays  = payments.filter(p => (p.property?._id?.toString() ?? p.property?.toString()) === propId)
-  const collected   = propPays.filter(p => p.status === 'paid').reduce((s, p) => s + p.amount, 0)
+  const collected   = propPays.reduce((s, p) => s + paidOf(p), 0)
   // Outstanding = rent owed across all recorded months minus what has been collected
   // e.g. rent 40,000, paid 23,000 → outstanding 17,000
   const uniqueMonths  = new Set(propPays.map(p => new Date(p.month).toISOString().slice(0, 7))).size
@@ -556,8 +567,8 @@ function PropertyDrawer({ property, applications, payments, setPayments, setList
       const { data } = await axios.post('/api/upload', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
-      // data.url is like /uploads/uuid.jpg — prefix with backend base so browser can load it
-      const fullUrl = `http://localhost:5000${data.url}`
+      // data.url is like /uploads/uuid.jpg; assetUrl adds the backend address
+      const fullUrl = assetUrl(data.url)
       setImageUrl(fullUrl)
       await saveImage(fullUrl)
     } catch { toast.error('Upload failed') }
@@ -799,10 +810,10 @@ function PropertyDrawer({ property, applications, payments, setPayments, setList
                         <div className="flex items-center gap-2 shrink-0">
                           <div className="text-right">
                             <p className={`font-bold text-sm ${p.status === 'paid' ? 'text-green-600' : 'text-amber-600'}`}>
-                              KES {p.amount.toLocaleString()}
+                              {amountText(p)}
                             </p>
                             <Badge variant={p.status === 'paid' ? 'success' : 'warning'} className="capitalize text-[10px]">
-                              {p.status}
+                              {paymentLabel(p)}
                             </Badge>
                           </div>
                           {p.status === 'pending' && (
@@ -986,7 +997,7 @@ function RevenueSection({ listings, payments, setPayments }) {
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
   })
   const expected    = listings.filter(l => !l.isAvailable).reduce((s, l) => s + l.rentPerMonth, 0)
-  const collected   = thisMonth.filter(p => p.status === 'paid').reduce((s, p) => s + p.amount, 0)
+  const collected   = thisMonth.reduce((s, p) => s + paidOf(p), 0)
   // Outstanding = what should have come in this month minus what actually has
   const outstanding = Math.max(0, expected - collected)
 
@@ -1111,7 +1122,7 @@ function RevenueSection({ listings, payments, setPayments }) {
                   <div className="space-y-0.5 flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-sm">{p.property?.title}</p>
-                      <Badge variant={p.status === 'paid' ? 'success' : 'warning'} className="capitalize">{p.status}</Badge>
+                      <Badge variant={p.status === 'paid' ? 'success' : 'warning'} className="capitalize">{paymentLabel(p)}</Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {p.tenant?.name}  {new Date(p.month).toLocaleString('default', { month: 'long', year: 'numeric' })}
@@ -1120,7 +1131,7 @@ function RevenueSection({ listings, payments, setPayments }) {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <p className={`font-bold text-sm ${p.status === 'paid' ? 'text-green-600' : 'text-amber-600'}`}>
-                      KES {p.amount.toLocaleString()}
+                      {amountText(p)}
                     </p>
                     {p.status === 'pending' && (
                       <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7 text-xs" onClick={() => markPaid(p._id)}>
@@ -1366,6 +1377,12 @@ function TenantDashboard() {
   // M-Pesa STK Push
   const [stkLoading, setStkLoading]     = useState(null) // payment._id being processed
 
+  // M-Pesa Paybill details (Paybill number comes from the server)
+  const [mpesaConfig, setMpesaConfig]   = useState(null)
+  useEffect(() => {
+    axios.get('/api/mpesa/config').then(r => setMpesaConfig(r.data)).catch(() => {})
+  }, [])
+
   // Maintenance requests
   const [maintenanceRequests, setMaintenanceRequests] = useState([])
   const [maintenanceLoading, setMaintenanceLoading]   = useState(false)
@@ -1515,6 +1532,36 @@ function TenantDashboard() {
         </motion.div>
       )}
 
+      {/* How to pay rent through the M-Pesa Paybill */}
+      {activeHome?.accountNumber && (
+        <Card className="border-[#4bb543]/40">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="h-9 w-9 rounded-lg bg-green-100 text-green-700 flex items-center justify-center shrink-0">
+                <Smartphone className="h-4 w-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">Pay rent with M-Pesa</p>
+                <p className="text-sm text-muted-foreground">
+                  M-Pesa → Lipa na M-Pesa → Pay Bill. Enter the business number and your account number below.
+                  Your payment is recorded automatically and you get an SMS receipt.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 shrink-0 text-center">
+                <div className="rounded-lg bg-muted px-4 py-2">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Business no.</p>
+                  <p className="font-mono font-bold">{mpesaConfig?.paybill || '—'}</p>
+                </div>
+                <div className="rounded-lg bg-muted px-4 py-2">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Account no.</p>
+                  <p className="font-mono font-bold">{activeHome.accountNumber}</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Phone number card (needed for M-Pesa + WhatsApp receipts) */}
       <Card className={`border ${!user?.phone ? 'border-amber-400/60 bg-amber-50/30' : ''}`}>
         <CardContent className="pt-4 pb-4">
@@ -1596,7 +1643,7 @@ function TenantDashboard() {
                     <CardContent className="pt-3 pb-3 text-center">
                       <p className="text-xs text-muted-foreground mb-1">Total Paid</p>
                       <p className="font-bold text-green-600">
-                        KES {payments.filter(p => p.status === 'paid').reduce((s, p) => s + p.amount, 0).toLocaleString()}
+                        KES {payments.reduce((s, p) => s + paidOf(p), 0).toLocaleString()}
                       </p>
                     </CardContent>
                   </Card>
@@ -1607,10 +1654,12 @@ function TenantDashboard() {
                         KES {(() => {
                           // Per month: rent expected − amount paid that month
                           const groups = {}
+                          const thisMonthKey = new Date().toISOString().slice(0, 7)
                           payments.forEach(p => {
                             const key = new Date(p.month).toISOString().slice(0, 7)
+                            if (key > thisMonthKey) return // prepaid future months are not owed yet
                             if (!groups[key]) groups[key] = { rent: p.property?.rentPerMonth || 0, paid: 0 }
-                            if (p.status === 'paid') groups[key].paid += p.amount
+                            groups[key].paid += paidOf(p)
                           })
                           return Object.values(groups).reduce((s, g) => s + Math.max(0, g.rent - g.paid), 0).toLocaleString()
                         })()}
@@ -1630,10 +1679,10 @@ function TenantDashboard() {
                     <div className="flex items-center gap-2 shrink-0">
                       <div className="text-right">
                         <p className={`font-bold text-sm ${p.status === 'paid' ? 'text-green-600' : 'text-amber-600'}`}>
-                          KES {p.amount.toLocaleString()}
+                          {amountText(p)}
                         </p>
                         <Badge variant={p.status === 'paid' ? 'success' : 'warning'} className="capitalize text-[10px] mt-0.5">
-                          {p.status}
+                          {paymentLabel(p)}
                         </Badge>
                       </div>
                       {p.status !== 'paid' && (
