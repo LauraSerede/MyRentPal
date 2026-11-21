@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# secrets: never commit real credentials (.env.example is the template)
+.env
+.env.*
+!.env.example
+
+# build output
+dist/
+build/
+
+# user-uploaded images (kept out of git; the folder itself stays)
+server/uploads/*
+!server/uploads/.gitkeep
+
+# local tools and logs
+ngrok.exe
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/
